@@ -210,11 +210,15 @@ def main():
             Context.jobconf = ctx['jobconf']
 
             generatorObj = Generator(ctx)
-            from cProfile import Profile
-            from pstats import Stats
-            p = Profile()
-            p.runcall(generatorObj.run)
-            p.dump_stats("profile.dump")
+            if os.getenv("PROFILE"):
+                from cProfile import Profile
+                from pstats import Stats
+                import random
+                p = Profile()
+                p.runcall(generatorObj.run)
+                p.dump_stats("profile%d.dump" % (random.random() * 10000000))
+            else:
+                generatorObj.run()
 
 
     # Daemon mode
@@ -241,6 +245,8 @@ if __name__ == '__main__':
         sys.exit(2)
 
     except Exception, e:
+        import traceback
+        print traceback.print_exc()
         if (options == None or            # do a stack trace if we fail when parsing options
            (hasattr(options, "stacktrace") and options.stacktrace)):  # or when 'stacktrace' is enabled
             raise
