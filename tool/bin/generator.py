@@ -210,7 +210,12 @@ def main():
             Context.jobconf = ctx['jobconf']
 
             generatorObj = Generator(ctx)
-            generatorObj.run()
+            from cProfile import Profile
+            from pstats import Stats
+            p = Profile()
+            p.runcall(generatorObj.run)
+            p.dump_stats("profile.dump")
+
 
     # Daemon mode
     else: 
