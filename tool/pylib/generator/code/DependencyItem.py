@@ -20,19 +20,15 @@
 ################################################################################
 
 import types
+from operator import itemgetter
 
-##
-## 
-class DependencyItem(object):
-    def __init__(self, name, attribute, requestor, line=-1, isLoadDep=False):
-        self.name           = name       # "qx.Class" [dependency to (class)]
-        assert isinstance(name, types.StringTypes)
-        self.attribute      = attribute  # "methodA"   [dependency to (class.attribute)]
-        self.requestor      = requestor  # "gui.Application" [the one depending on this item]
-        self.line           = line       # 147        [source line in dependent's file]
-        self.isLoadDep      = isLoadDep  # True       [load or run dependency]
-        self.needsRecursion = False      # this is a load-time dep that draws in external deps recursively
-        self.isCall         = False      # whether the reference is a function call
+class DependencyItem(tuple):
+    __slots__ = () 
+    # _fields = ('name', 'attribute', 'requestor', 'line', 'isLoadDep', 'isCall', 'needsRecursion') 
+
+    def __new__(_cls, name, attribute, requestor, line=-1, isLoadDep=False, isCall=False, needsRecursion=False):
+        return tuple.__new__(_cls, (name, attribute, requestor, line, [isLoadDep], isCall, needsRecursion)) 
+
     def __repr__(self):
         return "<DepItem>:" + self.name + "#" + self.attribute
     def __str__(self):
@@ -44,4 +40,20 @@ class DependencyItem(object):
     def __hash__(self):
         return hash(self.name + self.attribute)
 
+    def __getnewargs__(self):
+        return tuple(self) 
 
+    name = property(itemgetter(0))
+    attribute = property(itemgetter(1))
+    requestor = property(itemgetter(2))
+    line = property(itemgetter(3))
+
+    # isLoadDep is mutable
+    def get_isLoadDep(self):
+        return self[4][0]
+    def set_isLoadDep(self, value):
+        self[4][0] = value
+    isLoadDep = property(get_isLoadDep, set_isLoadDep)
+
+    isCall = property(itemgetter(5))
+    needsRecursion = property(itemgetter(6))
