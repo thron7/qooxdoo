@@ -186,6 +186,7 @@ class Cache(object):
     # @param dependsOn  file name to compare cache file against
     # @param memory     if read from disk keep value also in memory; improves subsequent access
     def read(self, cacheId, dependsOn=None, memory=False, keepLock=False):
+        print cacheId
         if dependsOn:
             source_timestamp = os.stat(dependsOn).st_mtime
         else:
@@ -198,8 +199,10 @@ class Cache(object):
             # Expired cache item?
             if source_timestamp > timestamp:
                 del self._memcache[cacheId]
+                self._dirty.discard(cacheId)
                 print "oops. expired memcache"
-                return None, timestamp
+                return None, source_timestamp
+
             print "got item from memcache"
         else:
             # File cache
@@ -216,9 +219,7 @@ class Cache(object):
                     if source_timestamp > timestamp:
                         # expired cache item -> ignore
                         print "oops. expired"
-                        return None, timestamp
-
-                    print timestamp
+                        return None, source_timestamp
 
                     # Not expired? Read content
                     content = pickle.loads(fobj.read().decode('zlib'))
@@ -231,10 +232,12 @@ class Cache(object):
             finally:
                 filetool.unlock(cacheFile)
 
-            print "from disk!"
             # self._memcache[cacheId] = source_timestamp, content
+            # self._dirty.discard(cacheId)
 
         self._cache_objects[id(content)] = cacheId
+        print "returning object: %s -> %s" % (
+            cacheId, source_timestamp)
         return content, source_timestamp
 
     ##
@@ -253,11 +256,19 @@ class Cache(object):
                     read_cacheId, cacheId)
                 del self._memcache[read_cacheId]
 
+        print "writing to %s" % (cacheId,)
+
         self._memcache[cacheId] = time.time(), content
         self._dirty.add(cacheId)
 
+        if len(self._dirty) > 20:
+            self.flush()
+            self.zap()
+
     def flush(self):
-        print "flushing %s memory keys to disk" % (len(self._memcache))
+        print "flushing %d dirty keys. %d total" % (
+            len(self._dirty), len(self._memcache))
+       
         filetool.directory(self._path)
         for cacheId, (content_timestamp, content) in \
                 self._memcache.iteritems():
