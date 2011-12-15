@@ -58,7 +58,7 @@ class Cache(object):
         return
 
     def __getstate__(self):
-        assert False, "cache pickled"
+        raise pickle.PickleError("Never pickle generator.runtime.Cache.")
 
     def _assureCacheIsValid(self, ):
         self._toolChainIsNewer = self._checkToolsNewer()
