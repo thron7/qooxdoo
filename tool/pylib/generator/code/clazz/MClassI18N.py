@@ -47,7 +47,6 @@ class MClassI18N(object):
         cached            = True
         console           = self.context['console']
 
-        #messages, _ = cache.readmulti(cacheId, self.path)
         classInfo, cacheModTime = self._getClassCache()
         messages = classInfo[cacheId] if cacheId in classInfo else None
         if messages != None:
@@ -68,7 +67,6 @@ class MClassI18N(object):
             console.debug("Found %s message strings" % len(messages))
 
         console.outdent()
-        #cache.writemulti(cacheId, messages)
         classInfo[cacheId] = messages
         self._writeClassCache(classInfo)
 

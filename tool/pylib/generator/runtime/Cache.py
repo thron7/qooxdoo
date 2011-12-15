@@ -20,7 +20,7 @@
 #
 ################################################################################
 
-import os, sys, time, functools, gc
+import os, time, functools, gc
 import cPickle as pickle
 from misc import filetool
 from misc.securehash import sha_construct
@@ -57,12 +57,8 @@ class Cache(object):
         self._console.outdent()
         return
 
-
     def __getstate__(self):
-        d = self.__dict__.copy()
-        del d['_locked_files']
-        return d
-
+        assert False, "cache pickled"
 
     def _assureCacheIsValid(self, ):
         self._toolChainIsNewer = self._checkToolsNewer()
@@ -107,24 +103,6 @@ class Cache(object):
             except:
                 return None
             return cacheRevision
-
-
-    ##
-    # predicate to check for files in the 'tool' path that are newer than the
-    # cache check file
-
-    def _checkToolsNewer_1(self, path, checkFile, context):
-        if not os.path.isfile(checkFile):
-            return True
-        checkFileMTime = os.stat(checkFile).st_mtime
-        # find youngst tool file
-        _, toolCheckMTime = filetool.findYoungest(os.path.dirname(filetool.root()))
-        # compare
-        if checkFileMTime < toolCheckMTime:
-            return True
-        else:
-            return False
-        
 
     ##
     # delete the files in the compile cache
@@ -201,56 +179,22 @@ class Cache(object):
 
         return "%s-%s" % (baseId, digestId)
         
-        
-    def readmulti(self, cacheId, dependsOn=None):
-        splittedId = cacheId.split("-")
-        baseId = splittedId.pop(0)
-        contentId = "-".join(splittedId)
-        multiId = "multi" + baseId
-        
-        saved, _ = self.read(multiId, None, True)
-        if saved and contentId in saved:
-            temp = saved[contentId]
-            
-            if os.stat(dependsOn).st_mtime > temp["time"]:
-                return None, temp["time"]
-            
-            return temp["content"], temp["time"]
-            
-        return None, None
-        
-        
-    def writemulti(self, cacheId, content):
-        splittedId = cacheId.split("-")
-        baseId = splittedId.pop(0)
-        contentId = "-".join(splittedId)
-        multiId = "multi" + baseId
-
-        saved, _ = self.read(multiId, None, True)
-        if not saved:
-            saved = {}
-        
-        saved[contentId] = {"time":time.time(), "content":content}
-        self.write(multiId, saved, True)
-
-
     ##
     # Read an object from cache.
     # 
     # @param dependsOn  file name to compare cache file against
     # @param memory     if read from disk keep value also in memory; improves subsequent access
     def read(self, cacheId, dependsOn=None, memory=False, keepLock=False):
+        # if keepLock:
+        #     import traceback, sys
+        #     traceback.print_stack(file=sys.stdout)
         if dependsOn:
             dependsModTime = os.stat(dependsOn).st_mtime
 
-        if writeCond(cacheId):
-            print "\nReading %s ..." % (cacheId,),
         # Mem cache
         if cacheId in memcache:
             memitem = memcache[cacheId]
             if not dependsOn or dependsModTime < memitem['time']:
-                if writeCond(cacheId):
-                    print "from memcache"
                 return memitem['content'], memitem['time']
 
         # File cache
@@ -264,7 +208,7 @@ class Cache(object):
 
         # out of date check
         if dependsOn and dependsModTime > cacheModTime:
-                return None, cacheModTime
+            return None, cacheModTime
 
         try:
             if not cacheFile in self._locked_files:
@@ -272,7 +216,6 @@ class Cache(object):
                 filetool.lock(cacheFile)
 
             fobj = open(cacheFile, 'rb')
-            #filetool.lock(fobj.fileno())
 
             gc.disable()
             try:
@@ -280,7 +223,6 @@ class Cache(object):
             finally:
                 gc.enable()
 
-            #filetool.unlock(fobj.fileno())
             fobj.close()
             if not keepLock:
                 filetool.unlock(cacheFile)
@@ -290,8 +232,6 @@ class Cache(object):
                 memcache[cacheId] = {'content':content, 'time': time.time()}
 
             #print "read cacheId: %s" % cacheId
-            if writeCond(cacheId):
-                print "from disk"
             return content, cacheModTime
 
         except (IOError, EOFError, pickle.PickleError, pickle.UnpicklingError):
@@ -305,11 +245,12 @@ class Cache(object):
     # @param memory         keep value also in memory; improves subsequent access
     # @param writeToFile    write value to disk
     def write(self, cacheId, content, memory=False, writeToFile=True, keepLock=False):
+        # if keepLock:
+        #     import traceback, sys
+        #     traceback.print_stack(file=sys.stdout)
         filetool.directory(self._path)
         cacheFile = os.path.join(self._path, self.filename(cacheId))
 
-        if writeCond(cacheId):
-            print "\nWriting %s ..." % (cacheId,),
         if writeToFile:
             try:
                 if not cacheFile in self._locked_files:
@@ -325,18 +266,12 @@ class Cache(object):
                     filetool.unlock(cacheFile)
                     self._locked_files.remove(cacheFile)  # not atomic with the previous one!
 
-                #print "wrote cacheId: %s" % cacheId
-                if writeCond(cacheId):
-                    print "to disk"
-
             except (IOError, EOFError, pickle.PickleError, pickle.PicklingError), e:
                 e.args = ("Could not store cache to %s\n" % self._path + e.args[0], ) + e.args[1:]
                 raise e
 
         if memory:
             memcache[cacheId] = {'time': time.time(), 'content':content}
-            if writeCond(cacheId):
-                print "to memcache"
 
 
     def remove(self, cacheId, writeToFile=False):
@@ -346,10 +281,6 @@ class Cache(object):
            return entry['content'], entry['time']
         else:
             return None, None
-
-
-def writeCond(cacheId):
-    return False #cacheId.startswith("class-") and "Environment.js" in cacheId
 
 
 ##
