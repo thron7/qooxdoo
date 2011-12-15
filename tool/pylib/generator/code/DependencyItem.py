@@ -24,6 +24,8 @@ import types
 ##
 ## 
 class DependencyItem(object):
+    __slots__ = 'name attribute requestor line isLoadDep needsRecursion isCall'.split()
+
     def __init__(self, name, attribute, requestor, line=-1, isLoadDep=False):
         self.name           = name       # "qx.Class" [dependency to (class)]
         assert isinstance(name, types.StringTypes)
