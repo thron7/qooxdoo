@@ -210,11 +210,22 @@ def main():
             Context.jobconf = ctx['jobconf']
 
             generatorObj = Generator(ctx)
-            from cProfile import Profile
-            from pstats import Stats
-            p = Profile()
-            p.runcall(generatorObj.run)
-            p.dump_stats("profile.dump")
+            if os.getenv("PROFILE"):
+                console.info("Profiling...")
+                from cProfile import Profile
+                from pstats import Stats
+                p = Profile()
+                p.runcall(generatorObj.run)
+                s = Stats(p)
+                if os.path.exists("profile.dump"):
+                    console.info("Profiling ended. adding to profile.dump")
+                    # merge profiling information from existing file
+                    s.add("profile.dump")
+                else:
+                    console.info("Profiling ended. creating profile.dump")
+                s.dump_stats("profile.dump")
+            else:
+                generatorObj.run()
 
 
     # Daemon mode
