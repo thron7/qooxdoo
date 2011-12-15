@@ -570,6 +570,9 @@ class Generator(object):
                     self.runPrivateDebug()
                     self.runLogUnusedClasses(script)
                     self.runLogResources(script)
+
+        self._console.info("Flushing cache")
+        self._cache.flush()
                 
         elapsedsecs = time.time() - starttime
         self._console.info("Done (%dm%05.2f)" % (int(elapsedsecs/60), elapsedsecs % 60))
