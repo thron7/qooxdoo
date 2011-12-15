@@ -373,17 +373,10 @@ class MClassDependencies(object):
                 # nothing to do with the singleton 'getInstance' method (just grep in the framework)
                 #elif classAttribute == 'getInstance':  # erase 'getInstance' and introduce 'construct' dependency
                 #    classAttribute = 'construct'
-                depsItem = DependencyItem(
-                    className, 
-                    classAttribute, 
-                    self.id, 
-                    node.get('line', -1), 
-                    inLoadContext,
-                    # it's a function call
-                    # interesting when following transitive deps
-                    node.hasParentContext("call/operand"),
-                )
+                depsItem = DependencyItem(className, classAttribute, self.id, node.get('line', -1), inLoadContext)
                 #print "-- adding: %s (%s:%s)" % (className, treeutil.getFileFromSyntaxItem(node), node.get('line',False))
+                if node.hasParentContext("call/operand"): # it's a function call
+                    depsItem.isCall = True  # interesting when following transitive deps
 
                 # Adding all items to list; let caller sort things out
                 depsList.append(depsItem)
@@ -402,7 +395,8 @@ class MClassDependencies(object):
             if variantoptimizer.isEnvironmentCall(callnode):
                 className, classAttribute = self.getClassNameFromEnvKey(node.get("value", ""))
                 if className:
-                    depsItem = DependencyItem(className, classAttribute, self.id, node.get('line', -1), inLoadContext, isCall=True)
+                    depsItem = DependencyItem(className, classAttribute, self.id, node.get('line', -1), inLoadContext)
+                    depsItem.isCall = True  # treat as if actual call, to collect recursive deps
                     depsList.append(depsItem)
                     node.dep = depsItem
 
@@ -854,7 +848,9 @@ class MClassDependencies(object):
                               methodId, dependencyItem.requestor, dependencyItem.line))
                 return set()
             
-            defDepsItem = DependencyItem(defClassId, methodId, classId, isCall=dependencyItem.isCall)
+            defDepsItem = DependencyItem(defClassId, methodId, classId)
+            if dependencyItem.isCall:
+                defDepsItem.isCall = True  # if the dep is an inherited method being called, pursue the parent method as call
             localDeps   = set()
 
             # inherited feature
