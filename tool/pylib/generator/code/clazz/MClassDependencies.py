@@ -382,17 +382,16 @@ class MClassDependencies(object):
                     # it's a function call
                     # interesting when following transitive deps
                     node.hasParentContext("call/operand"),
-                    # Mark items that need recursive analysis of their 
-                    # dependencies (bug#1455)
-                    self.followCallDeps(
-                        node, self.id, className, inLoadContext
-                    ),
                 )
                 #print "-- adding: %s (%s:%s)" % (className, treeutil.getFileFromSyntaxItem(node), node.get('line',False))
 
                 # Adding all items to list; let caller sort things out
                 depsList.append(depsItem)
                 node.dep = depsItem
+
+                # Mark items that need recursive analysis of their dependencies (bug#1455)
+                if self.followCallDeps(node, self.id, className, inLoadContext):
+                    depsItem.needsRecursion = True
 
         # check e.g. qx.core.Environment.get("runtime.name")
         elif node.type == "constant" and node.hasParentContext("call/params"):

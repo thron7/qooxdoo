@@ -27,7 +27,7 @@ class DependencyItem(tuple):
     # _fields = ('name', 'attribute', 'requestor', 'line', 'isLoadDep', 'isCall', 'needsRecursion') 
 
     def __new__(_cls, name, attribute, requestor, line=-1, isLoadDep=False, isCall=False, needsRecursion=False):
-        return tuple.__new__(_cls, (name, attribute, requestor, line, [isLoadDep], isCall, needsRecursion)) 
+        return tuple.__new__(_cls, (name, attribute, requestor, line, [isLoadDep], isCall, [needsRecursion])) 
 
     def __repr__(self):
         return "<DepItem>:" + self.name + "#" + self.attribute
@@ -56,4 +56,10 @@ class DependencyItem(tuple):
     isLoadDep = property(get_isLoadDep, set_isLoadDep)
 
     isCall = property(itemgetter(5))
-    needsRecursion = property(itemgetter(6))
+
+    # needsRecursion is mutable
+    def get_needsRecursion(self):
+        return self[6][0]
+    def set_needsRecursion(self, value):
+        self[6][0] = value
+    needsRecursion = property(get_needsRecursion, set_needsRecursion)
