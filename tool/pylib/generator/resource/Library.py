@@ -51,7 +51,7 @@ class Library(object):
         self._classesObj = []
         self._docs = {}
         self._translations = {}
-        self.resources  = set()
+        self.resources  = {}
 
         #self._init_from_manifest(libconfig)
         self._libconfig = libconfig
@@ -203,7 +203,7 @@ class Library(object):
         return self.namespace
 
     def getResources(self):
-        return self.resources
+        return self.resources.values()
 
     def scan(self, timeOfLastScan=0):
         self._console.debug("Scanning %s..." % self.path)
@@ -309,7 +309,7 @@ class Library(object):
         if not path.endswith(os.sep):
             lib_prefix_len += 1
 
-        self.resources = set()
+        self.resources = {}
         for root, dirs, files in filetool.walk(path):
             # filter ignored directories
             for dir in dirs:
@@ -330,10 +330,10 @@ class Library(object):
                 else:
                     res = Resource(fpath)
                 
-                res.set_id(Path.posifyPath(fpath[lib_prefix_len:]))
-                res.library= self
-
-                self.resources.add(res)
+                resourceId = Path.posifyPath(fpath[lib_prefix_len:])
+                res.set_id(resourceId)
+                res.library = self
+                self.resources[resourceId] = res
 
         return
 

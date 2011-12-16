@@ -20,14 +20,13 @@
 #
 ################################################################################
 
-import os, time, functools, gc
+import os, time, gc
 import cPickle as pickle
 from misc import filetool
 from misc.securehash import sha_construct
 from generator.runtime.ShellCmd import ShellCmd
 from generator.runtime.Log import Log
 
-memcache  = {} # {key: {'content':content, 'time': (time.time()}}
 check_file     = u".cache_check_file"
 CACHE_REVISION = 28982 # increment this when existing caches need clearing
 
@@ -51,11 +50,16 @@ class Cache(object):
         self._console.debug("Initializing cache...")
         self._console.indent()
         self._check_path(self._path)
-        self._locked_files   = set(())
         self._context['interruptRegistry'].register(self._unlock_files)
         self._assureCacheIsValid()  # checks and pot. clears existing cache
         self._console.outdent()
-        return
+        self._cache_objects = {}
+        self._memcache = {}
+        self._dirty = set()
+        self._hits = 0
+        self._miss = 0
+        self._reads = 0
+        self._writes = 0
 
     def __getstate__(self):
         raise pickle.PickleError("Never pickle generator.runtime.Cache.")
@@ -185,59 +189,67 @@ class Cache(object):
     # @param dependsOn  file name to compare cache file against
     # @param memory     if read from disk keep value also in memory; improves subsequent access
     def read(self, cacheId, dependsOn=None, memory=False, keepLock=False):
-        # if keepLock:
-        #     import traceback, sys
-        #     traceback.print_stack(file=sys.stdout)
+        self._reads += 1
+
         if dependsOn:
-            dependsModTime = os.stat(dependsOn).st_mtime
+            source_timestamp = os.stat(dependsOn).st_mtime
+        else:
+            # no dependency?
+            source_timestamp = 0 
 
-        # Mem cache
-        if cacheId in memcache:
-            memitem = memcache[cacheId]
-            if not dependsOn or dependsModTime < memitem['time']:
-                return memitem['content'], memitem['time']
+        if len(self._memcache) >= 300:
+            self.flush()
+            self.zap()
 
-        # File cache
-        filetool.directory(self._path)
-        cacheFile = os.path.join(self._path, self.filename(cacheId))
+        if cacheId in self._memcache:
+            content_timestamp, content = self._memcache[cacheId]
 
-        try:
-            cacheModTime = os.stat(cacheFile).st_mtime
-        except OSError:
-            return None, None
+            # Expired cache item?
+            if source_timestamp > content_timestamp:
+                del self._memcache[cacheId]
+                self._dirty.discard(cacheId)
+                print "oops. expired memcache"
+                return None, source_timestamp
 
-        # out of date check
-        if dependsOn and dependsModTime > cacheModTime:
-            return None, cacheModTime
+            self._hits += 1
 
-        try:
-            if not cacheFile in self._locked_files:
-                self._locked_files.add(cacheFile)
-                filetool.lock(cacheFile)
+            # print "got item from memcache"
+        else:
+            # File cache
+            filetool.directory(self._path)
+            cacheFile = os.path.join(self._path, self.filename(cacheId))
 
-            fobj = open(cacheFile, 'rb')
+            self._miss += 1
 
-            gc.disable()
+            filetool.lock(cacheFile)
             try:
-                content = pickle.loads(fobj.read().decode('zlib'))
-            finally:
-                gc.enable()
+                fobj = open(cacheFile, 'rb')
+                gc.disable()
+                try:
+                    # read timestamp first
+                    content_timestamp = pickle.load(fobj)
+                    
+                    if source_timestamp > content_timestamp:
+                        # expired cache item -> ignore
+                        print "oops. expired"
+                        return None, source_timestamp
 
-            fobj.close()
-            if not keepLock:
+                    # Not expired? Read content
+                    content = pickle.loads(fobj.read().decode('zlib'))
+                finally:
+                    gc.enable()
+                    fobj.close()
+            except IOError:
+                return None, source_timestamp
+            finally:
                 filetool.unlock(cacheFile)
-                self._locked_files.remove(cacheFile)
 
             if memory:
-                memcache[cacheId] = {'content':content, 'time': time.time()}
+                self._memcache[cacheId] = source_timestamp, content
+                self._dirty.discard(cacheId)
 
-            #print "read cacheId: %s" % cacheId
-            return content, cacheModTime
-
-        except (IOError, EOFError, pickle.PickleError, pickle.UnpicklingError):
-            self._console.warn("Could not read cache object from %s, recalculating..." % self._path)
-            return None, cacheModTime
-
+        self._cache_objects[id(content)] = cacheId
+        return content, content_timestamp
 
     ##
     # Write an object to cache.
@@ -245,54 +257,55 @@ class Cache(object):
     # @param memory         keep value also in memory; improves subsequent access
     # @param writeToFile    write value to disk
     def write(self, cacheId, content, memory=False, writeToFile=True, keepLock=False):
-        # if keepLock:
-        #     import traceback, sys
-        #     traceback.print_stack(file=sys.stdout)
+        self._writes += 1
+
+        read_cacheId = self._cache_objects.get(id(content))
+        if read_cacheId and read_cacheId != cacheId:
+            # content was read using a different cacheId. 
+            # The content of this previous cacheId is now
+            # invalidated in memory.
+            if read_cacheId in self._memcache:
+                print "invalidating previous cache key %s while writing to %s" % (
+                    read_cacheId, cacheId)
+                del self._memcache[read_cacheId]
+                self._dirty.discard(read_cacheId)
+
+        self._memcache[cacheId] = time.time(), content
+        self._dirty.add(cacheId)
+
+        if len(self._memcache) >= 10:
+            self.flush()
+            self.zap()
+
+    def flush(self):
+        self._console.info("flushing %d dirty keys. %d total" % (
+            len(self._dirty), len(self._memcache)))
+       
         filetool.directory(self._path)
-        cacheFile = os.path.join(self._path, self.filename(cacheId))
+        for cacheId, (content_timestamp, content) in \
+                self._memcache.iteritems():
 
-        if writeToFile:
+            # not changed? no need to write
+            if cacheId not in self._dirty:
+                continue
+
+            cacheFile = os.path.join(self._path, self.filename(cacheId))
+
+            fobj = open(cacheFile, 'wb')
             try:
-                if not cacheFile in self._locked_files:
-                    self._locked_files.add(cacheFile)  # this is not atomic with the next one!
-                    filetool.lock(cacheFile)
-
-                fobj = open(cacheFile, 'wb')
+                pickle.dump(content_timestamp, fobj, 2)
                 fobj.write(pickle.dumps(content, 2).encode('zlib'))
+            finally:
                 fobj.close()
 
-                if not keepLock:
-                    filetool.unlock(cacheFile)
-                    self._locked_files.remove(cacheFile)  # not atomic with the previous one!
+            self._dirty.remove(cacheId)
 
-            except (IOError, EOFError, pickle.PickleError, pickle.PicklingError), e:
-                e.args = ("Could not store cache to %s\n" % self._path + e.args[0], ) + e.args[1:]
-                raise e
+    def zap(self):
+        self._memcache = {}
+        self._dirty = set()
+        self._cache_objects = {}
 
-        if memory:
-            memcache[cacheId] = {'time': time.time(), 'content':content}
-
-
-    def remove(self, cacheId, writeToFile=False):
-        if cacheId in memcache:
-           entry = memcache[cacheId]
-           del memcache[cacheId]
-           return entry['content'], entry['time']
-        else:
-            return None, None
-
-
-##
-# Caching decorator
-def caching(cacheobj, keyfn):
-    def realdecorator(fn):
-        @functools.wraps(fn)
-        def wrapper(*args, **kwargs):
-            cacheId = keyfn(*args, **kwargs)
-            res = cacheobj.read(cacheId)
-            if not res:
-                res = fn(*args, **kwargs)
-                cacheobj.write(cacheId, res)
-            return res
-        return wrapper
-    return realdecorator
+    def stats(self):
+        self._console.info("%d hits, %s misses, %d reads, %d writes" % (
+            self._hits, self._miss,
+            self._reads, self._writes))

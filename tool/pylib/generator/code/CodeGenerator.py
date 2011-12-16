@@ -1276,14 +1276,14 @@ class CodeGenerator(object):
     # generated scripts.For images, the information includes pre-calculated 
     # sizes, and being part of a combined image.
     def packagesResourceInfo(self, script):
-        classes = Class.mapResourcesToClasses (script.libraries, script.classesObj,
+        Class.mapResourcesToClasses (script.libraries, script.classesObj,
                                             self._job.get("asset-let", {}))
 
         for package in script.packages:
             package_resources = []
             package_classes   = package.classes
             for clazz in package_classes:
-                package_resources.extend(clazz.resources)
+                package_resources.extend(clazz.resources.itervalues())
             package.data.resources = Script.createResourceStruct(package_resources, formatAsTree=False,
                                                          updateOnlyExistingSprites=True)
         return script
