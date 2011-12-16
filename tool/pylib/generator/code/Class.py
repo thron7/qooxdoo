@@ -56,7 +56,7 @@ class Class(Resource, MClassHints, MClassI18N, MClassDependencies, MClassCode, M
         #self.type      = "" # PROPERTY
         self.scopes     = None # an ecmascript.frontend.Script instance
         self.translations = {} # map of translatable strings in this class
-        self.resources  = set() # set of resource objects needed by the class
+        self.resources  = {}  # id->resource mapping of objects needed by the class
         self._assetRegex= {}  # [AssetHint], to hold regex's from #asset hints, for resource matching
         self.cacheId    = "class-%s" % self.path  # cache object for class-specific infos (outside tree, compile)
         self.treeId     = None # cache id for the source tree; filled in tree()

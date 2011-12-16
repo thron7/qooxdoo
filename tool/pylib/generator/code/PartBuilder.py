@@ -132,10 +132,12 @@ class PartBuilder(object):
     # Check all classes from the global class list are contained in
     # *some* package.
     def _checkPackagesAgainstClassList(self, script):
-        allpackageclasses = set([])
+        allPackageClassIds = set()
         for package in script.packages:
-            allpackageclasses.update(package.classes)
-        missingclasses = set(script.classesObj).difference(allpackageclasses)
+            for classObj in package.classes:
+                allPackageClassIds.add(classObj.id)
+        scriptIds = set(classObj.id for classObj in script.classesObj)
+        missingclasses = scriptIds.difference(allPackageClassIds)
         if missingclasses:
             raise ValueError("These necessary classes are not covered by parts: %r" % list(missingclasses))
 

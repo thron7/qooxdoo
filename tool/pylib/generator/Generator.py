@@ -570,6 +570,10 @@ class Generator(object):
                     self.runPrivateDebug()
                     self.runLogUnusedClasses(script)
                     self.runLogResources(script)
+
+        self._console.info("Flushing cache")
+        self._cache.flush()
+        self._cache.stats()
                 
         elapsedsecs = time.time() - starttime
         self._console.info("Done (%dm%05.2f)" % (int(elapsedsecs/60), elapsedsecs % 60))
@@ -1286,12 +1290,15 @@ class Generator(object):
 
         self._console.indent()
         # make resources to copy unique
-        resources_to_copy = set(_res for cls in classList for _res in cls.resources)
+        resources_to_copy = dict((resid, res) 
+            for cls in classList 
+            for resid, res in cls.resources.iteritems()
+        )
         # Copy resources
         #for lib in libs:
-        for res in resources_to_copy:
+        for resid, res in resources_to_copy.iteritems():
             # construct target path
-            resTarget = os.path.join(resTargetRoot, 'resource', res.id)
+            resTarget = os.path.join(resTargetRoot, 'resource', resid)
             # Copy
             self._copyResources(res.path, os.path.dirname(resTarget))
 
