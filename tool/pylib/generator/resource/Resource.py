@@ -32,20 +32,19 @@ import re, os, sys, types, unicodedata as unidata
 class Resource(object):
     
     def __init__(self, path=None):
-        self.path   = path
+        self.path = path
         self.set_id(unicode(id(self)))
-        self.library= None
+        self.library = None
         self.m_time_= None  # last-modified time stamp
 
     def set_id(self, id):
         self.id = unidata.normalize("NFC", id)
-        self.hash = hash(self.id)
 
     def __str__(self):
         return self.id
 
-    def __repr__(self):
-        return "<%s:%s>" % (self.__class__.__name__, self.id)
+    # def __repr__(self):
+    #     return "<%s:%s>" % (self.__class__.__name__, self.id)
 
     ##
     # make the .id significant for 'in' tests, and set() operations (?)
@@ -55,7 +54,7 @@ class Resource(object):
     ##
     # make the .id significant for set() operations
     def __hash__(self):
-        return self.hash
+        raise ValueError("Resource in unhashable")
     
     def toResinfo(self):
         return self.library.namespace

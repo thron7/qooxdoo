@@ -20,7 +20,7 @@
 #
 ################################################################################
 
-import os, time, functools, gc
+import os, time, gc
 import cPickle as pickle
 from misc import filetool
 from misc.securehash import sha_construct
@@ -56,7 +56,10 @@ class Cache(object):
         self._cache_objects = {}
         self._memcache = {}
         self._dirty = set()
-        return
+        self._hits = 0
+        self._miss = 0
+        self._reads = 0
+        self._writes = 0
 
     def __getstate__(self):
         raise pickle.PickleError("Never pickle generator.runtime.Cache.")
@@ -186,28 +189,37 @@ class Cache(object):
     # @param dependsOn  file name to compare cache file against
     # @param memory     if read from disk keep value also in memory; improves subsequent access
     def read(self, cacheId, dependsOn=None, memory=False, keepLock=False):
-        print cacheId
+        self._reads += 1
+
         if dependsOn:
             source_timestamp = os.stat(dependsOn).st_mtime
         else:
             # no dependency?
             source_timestamp = 0 
 
+        if len(self._memcache) >= 300:
+            self.flush()
+            self.zap()
+
         if cacheId in self._memcache:
-            timestamp, content = self._memcache[cacheId]
+            content_timestamp, content = self._memcache[cacheId]
 
             # Expired cache item?
-            if source_timestamp > timestamp:
+            if source_timestamp > content_timestamp:
                 del self._memcache[cacheId]
                 self._dirty.discard(cacheId)
                 print "oops. expired memcache"
                 return None, source_timestamp
 
-            print "got item from memcache"
+            self._hits += 1
+
+            # print "got item from memcache"
         else:
             # File cache
             filetool.directory(self._path)
             cacheFile = os.path.join(self._path, self.filename(cacheId))
+
+            self._miss += 1
 
             filetool.lock(cacheFile)
             try:
@@ -215,8 +227,9 @@ class Cache(object):
                 gc.disable()
                 try:
                     # read timestamp first
-                    timestamp = pickle.load(fobj)
-                    if source_timestamp > timestamp:
+                    content_timestamp = pickle.load(fobj)
+                    
+                    if source_timestamp > content_timestamp:
                         # expired cache item -> ignore
                         print "oops. expired"
                         return None, source_timestamp
@@ -227,18 +240,16 @@ class Cache(object):
                     gc.enable()
                     fobj.close()
             except IOError:
-                print "error while reading"
                 return None, source_timestamp
             finally:
                 filetool.unlock(cacheFile)
 
-            # self._memcache[cacheId] = source_timestamp, content
-            # self._dirty.discard(cacheId)
+            if memory:
+                self._memcache[cacheId] = source_timestamp, content
+                self._dirty.discard(cacheId)
 
         self._cache_objects[id(content)] = cacheId
-        print "returning object: %s -> %s" % (
-            cacheId, source_timestamp)
-        return content, source_timestamp
+        return content, content_timestamp
 
     ##
     # Write an object to cache.
@@ -246,28 +257,29 @@ class Cache(object):
     # @param memory         keep value also in memory; improves subsequent access
     # @param writeToFile    write value to disk
     def write(self, cacheId, content, memory=False, writeToFile=True, keepLock=False):
+        self._writes += 1
+
         read_cacheId = self._cache_objects.get(id(content))
         if read_cacheId and read_cacheId != cacheId:
-            # content was read from different cacheId. 
+            # content was read using a different cacheId. 
             # The content of this previous cacheId is now
             # invalidated in memory.
             if read_cacheId in self._memcache:
                 print "invalidating previous cache key %s while writing to %s" % (
                     read_cacheId, cacheId)
                 del self._memcache[read_cacheId]
-
-        print "writing to %s" % (cacheId,)
+                self._dirty.discard(read_cacheId)
 
         self._memcache[cacheId] = time.time(), content
         self._dirty.add(cacheId)
 
-        if len(self._dirty) > 20:
+        if len(self._memcache) >= 10:
             self.flush()
             self.zap()
 
     def flush(self):
-        print "flushing %d dirty keys. %d total" % (
-            len(self._dirty), len(self._memcache))
+        self._console.info("flushing %d dirty keys. %d total" % (
+            len(self._dirty), len(self._memcache)))
        
         filetool.directory(self._path)
         for cacheId, (content_timestamp, content) in \
@@ -291,3 +303,9 @@ class Cache(object):
     def zap(self):
         self._memcache = {}
         self._dirty = set()
+        self._cache_objects = {}
+
+    def stats(self):
+        self._console.info("%d hits, %s misses, %d reads, %d writes" % (
+            self._hits, self._miss,
+            self._reads, self._writes))

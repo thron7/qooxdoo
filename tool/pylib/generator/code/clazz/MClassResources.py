@@ -123,7 +123,7 @@ class MClassResources(object):
         assetHints  = []
         for clazz in classes:
             assetHints.extend(clazz.getAssets(assetMacros))
-            clazz.resources = set() #TODO: they might be filled by previous jobs, with different libs
+            clazz.resources = {} #TODO: they might be filled by previous jobs, with different libs
 
         # Go through resources and asset patterns
         for res in resources:
@@ -131,13 +131,13 @@ class MClassResources(object):
                 # add direct matches
                 if hint.regex.match(res.id):
                     hint.seen = True
-                    hint.clazz.resources.add(res)
+                    hint.clazz.resources[res.id] = res
                 # add matches of embedded images
                 if isinstance(res, CombinedImage):
                     for embed in res.embeds:
                         if hint.regex.match(embed.id):
                             hint.seen = True
-                            hint.clazz.resources.add(res)
+                            hint.clazz.resources[res.id] = res
 
         # Now that the resource mapping is done, check if we have unfullfilled hints
         for hint in assetHints:
