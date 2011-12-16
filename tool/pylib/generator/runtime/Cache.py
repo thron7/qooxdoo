@@ -20,7 +20,7 @@
 #
 ################################################################################
 
-import os, time, functools, gc
+import os, time, functools, gc, tempfile
 import cPickle as pickle
 from misc import filetool
 from misc.securehash import sha_construct
@@ -30,6 +30,35 @@ from generator.runtime.Log import Log
 memcache  = {} # {key: {'content':content, 'time': (time.time()}}
 check_file     = u".cache_check_file"
 CACHE_REVISION = 28982 # increment this when existing caches need clearing
+
+class CacheWriter(object):
+    def __init__(self, cacheFile):
+        self.cacheFile = cacheFile
+        tmpfd, self.tmpname = tempfile.mkstemp(
+            dir = os.path.dirname(cacheFile),
+            prefix = os.path.basename(cacheFile),
+            suffix = ".tmp",
+            text = False,
+        )
+        self.stream = os.fdopen(tmpfd, "wb")
+
+    def commit(self):
+        self.stream.close()
+        try:
+            os.rename(self.tmpname, self.cacheFile)
+        except OSError:
+            try:
+                os.unlink(self.tmpname)
+            except OSError:
+                pass
+            raise
+
+    def discard(self):
+        self.stream.close()
+        try:
+            os.unlink(self.tmpname)
+        except OSError:
+            pass
 
 class Cache(object):
 
@@ -51,11 +80,8 @@ class Cache(object):
         self._console.debug("Initializing cache...")
         self._console.indent()
         self._check_path(self._path)
-        self._locked_files   = set(())
-        self._context['interruptRegistry'].register(self._unlock_files)
         self._assureCacheIsValid()  # checks and pot. clears existing cache
         self._console.outdent()
-        return
 
     def __getstate__(self):
         raise pickle.PickleError("Never pickle generator.runtime.Cache.")
@@ -144,17 +170,6 @@ class Cache(object):
             pass
         self._console.outdent()
 
-    ##
-    # clean up lock files interrupt handler
-
-    def _unlock_files(self):
-        for file in self._locked_files:
-            try:
-                filetool.unlock(file)
-                self._console.debug("Cleaned up lock for file: %r" % file)
-            except: # file might not exists since adding to _lock_files and actually locking is not atomic
-                pass   # no sense to do much fancy in an interrupt handler
-
 
     ##
     # warn about newer tool chain interrupt handler
@@ -178,16 +193,14 @@ class Cache(object):
         digestId = sha_construct("-".join(splittedId)).hexdigest()
 
         return "%s-%s" % (baseId, digestId)
+
         
     ##
     # Read an object from cache.
     # 
     # @param dependsOn  file name to compare cache file against
     # @param memory     if read from disk keep value also in memory; improves subsequent access
-    def read(self, cacheId, dependsOn=None, memory=False, keepLock=False):
-        # if keepLock:
-        #     import traceback, sys
-        #     traceback.print_stack(file=sys.stdout)
+    def read(self, cacheId, dependsOn=None, memory=False):
         if dependsOn:
             dependsModTime = os.stat(dependsOn).st_mtime
 
@@ -198,7 +211,6 @@ class Cache(object):
                 return memitem['content'], memitem['time']
 
         # File cache
-        filetool.directory(self._path)
         cacheFile = os.path.join(self._path, self.filename(cacheId))
 
         try:
@@ -211,10 +223,6 @@ class Cache(object):
             return None, cacheModTime
 
         try:
-            if not cacheFile in self._locked_files:
-                self._locked_files.add(cacheFile)
-                filetool.lock(cacheFile)
-
             fobj = open(cacheFile, 'rb')
 
             gc.disable()
@@ -224,9 +232,6 @@ class Cache(object):
                 gc.enable()
 
             fobj.close()
-            if not keepLock:
-                filetool.unlock(cacheFile)
-                self._locked_files.remove(cacheFile)
 
             if memory:
                 memcache[cacheId] = {'content':content, 'time': time.time()}
@@ -244,26 +249,19 @@ class Cache(object):
     #
     # @param memory         keep value also in memory; improves subsequent access
     # @param writeToFile    write value to disk
-    def write(self, cacheId, content, memory=False, writeToFile=True, keepLock=False):
-        # if keepLock:
-        #     import traceback, sys
-        #     traceback.print_stack(file=sys.stdout)
-        filetool.directory(self._path)
+    def write(self, cacheId, content, memory=False, writeToFile=True):
         cacheFile = os.path.join(self._path, self.filename(cacheId))
 
         if writeToFile:
             try:
-                if not cacheFile in self._locked_files:
-                    self._locked_files.add(cacheFile)  # this is not atomic with the next one!
-                    filetool.lock(cacheFile)
-
-                fobj = open(cacheFile, 'wb')
-                fobj.write(pickle.dumps(content, 2).encode('zlib'))
-                fobj.close()
-
-                if not keepLock:
-                    filetool.unlock(cacheFile)
-                    self._locked_files.remove(cacheFile)  # not atomic with the previous one!
+                writer = CacheWriter(cacheFile)
+                try:
+                    writer.stream.write(pickle.dumps(content, 2).encode('zlib'))
+                except Exception:
+                    writer.discard()
+                    raise
+                else:
+                    writer.commit()
 
             except (IOError, EOFError, pickle.PickleError, pickle.PicklingError), e:
                 e.args = ("Could not store cache to %s\n" % self._path + e.args[0], ) + e.args[1:]

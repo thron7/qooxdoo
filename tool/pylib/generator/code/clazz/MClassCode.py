@@ -227,7 +227,7 @@ class MClassCode(object):
 
         def load_privates():
             cacheId  = privateoptimizer.privatesCacheId
-            privates, _ = cache.read(cacheId, keepLock=True)
+            privates, _ = cache.read(cacheId)
             if privates == None:
                 privates = {}
             return privates
