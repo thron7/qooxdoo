@@ -261,14 +261,18 @@ class Cache(object):
 
         try:
             fobj = open(cacheFile, 'rb')
+            fcontent = fobj.read().decode('zlib')
+            fobj.close()
+        except (IOError, ):
+            self._console.warn("Could not read cache object %s" % cacheFile)
+            return None, cacheModTime
 
+        try:
             gc.disable()
             try:
-                content = pickle.loads(fobj.read().decode('zlib'))
+                content = pickle.loads(fcontent)
             finally:
                 gc.enable()
-
-            fobj.close()
 
             if memory:
                 memcache[cacheId] = {'content':content, 'time': time.time()}
@@ -276,8 +280,8 @@ class Cache(object):
             #print "read cacheId: %s" % cacheId
             return content, cacheModTime
 
-        except (IOError, EOFError, pickle.PickleError, pickle.UnpicklingError):
-            self._console.warn("Could not read cache object from %s, recalculating..." % self._path)
+        except (EOFError, pickle.PickleError, pickle.UnpicklingError):
+            self._console.warn("Could not unpickle cache object %s" % cacheFile)
             return None, cacheModTime
 
 
