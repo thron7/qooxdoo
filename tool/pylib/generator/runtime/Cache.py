@@ -59,9 +59,7 @@ class Cache(object):
 
 
     def __getstate__(self):
-        d = self.__dict__.copy()
-        del d['_locked_files']
-        return d
+        raise pickle.PickleError("Never pickle generator.runtime.Cache.")
 
 
     def _assureCacheIsValid(self, ):
