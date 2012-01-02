@@ -20,7 +20,7 @@
 #
 ################################################################################
 
-import os, time, functools, gc, tempfile
+import os, sys, exceptions, time, functools, gc, tempfile
 import cPickle as pickle
 from misc import filetool
 from misc.securehash import sha_construct
@@ -46,12 +46,15 @@ class CacheWriter(object):
         self.stream.close()
         try:
             os.rename(self.tmpname, self.cacheFile)
-        except OSError:
+        except OSError, e:
             try:
                 os.unlink(self.tmpname)
             except OSError:
                 pass
-            raise
+            if hasattr(exceptions, "WindowsError") and isinstance(e, exceptions.WindowsError) and e.args[0] == 183: # cannot rename to an existing file on Win32
+                pass # some other process has written this object earlier
+            else:
+                raise
 
     def discard(self):
         self.stream.close()
