@@ -1,0 +1,7 @@
+/api/
+/build/
+/source/script/
+/test/script/
+/test/npm/node_modules/
+/script/
+/npm/build/
